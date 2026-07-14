@@ -17,32 +17,34 @@ import java.util.Deque;
 import java.util.List;
 
 /**
- * OpMode de calibracion: el driver mueve el robot manualmente para apuntar.
- * Controla el shooter por VELOCIDAD (encoder), no por potencia cruda, para que
- * el tiro no varie cuando baja el voltaje de la bateria durante el partido.
- * Modo MANUAL: DPAD arriba/abajo ajusta la velocidad objetivo a mano, para ir
- * anotando pares reales (range, velocidad) tiro por tiro.
- * Modo AUTO: interpola esos pares sobre la tabla CALIBRATION.
+ * Calibration OpMode: the driver moves the robot manually to aim.
+ * Controls the shooter by VELOCITY (encoder), not raw power, so the shot
+ * doesn't vary as the battery voltage drops during the match.
+ * MANUAL mode: DPAD up/down adjusts the target velocity by hand, to log
+ * real (range, velocity) pairs shot by shot.
+ * AUTO mode: interpolates those pairs over the CALIBRATION table.
  */
 @TeleOp(name = "Shooter Calibration", group = "Pruebas")
 public class ShooterCalibration extends LinearOpMode {
 
-   
-    // (viene en la hoja de especificaciones del motor, ej. goBILDA/REV Robotics).
+    // REV-41-1291 HD Hex Motor (no gearbox): 28 ticks/rev, 6000 RPM free at 12V.
     private static final double MOTOR_TICKS_PER_REV = 28.0;
+    // Kept well below the 6000 RPM free speed to leave headroom for the
+    // velocity controller and avoid maxing out the motor.
+    private static final double MAX_SHOOTER_RPM = 5000.0;
 
     private static final int[] TARGET_TAG_IDS = {100, 101, 102, 103, 104};
 
-    // Puntos de calibracion (range en cm -> velocidad objetivo en RPM del motor).
-    // Empieza con 2 y ve agregando mas conforme pruebes distancias intermedias.
+    // Calibration points (range in cm -> target motor RPM).
+    // Start with 2 and add more as you test intermediate distances.
     private static final double[][] CALIBRATION = {
             {100.0, 2200.0},
             {300.0, 3400.0},
     };
 
-    private static final double MANUAL_STEP_RPM = 25.0; // cambio por pulsacion en modo manual
-    private static final double VELOCITY_READY_TOLERANCE = 0.05; // 5% de margen para considerar "listo"
-    private static final int RANGE_SAMPLES = 5; // frames a promediar para suavizar el range detectado
+    private static final double MANUAL_STEP_RPM = 25.0; // change per press in manual mode
+    private static final double VELOCITY_READY_TOLERANCE = 0.05; // 5% tolerance to consider "ready"
+    private static final int RANGE_SAMPLES = 5; // frames averaged to smooth out the detected range
 
     private AprilTagProcessor aprilTag;
     private VisionPortal visionPortal;
@@ -80,7 +82,7 @@ public class ShooterCalibration extends LinearOpMode {
             if (gamepad1.y && !lastY) autoMode = !autoMode;
             lastY = gamepad1.y;
 
-            if (gamepad1.dpad_up) manualRpm += MANUAL_STEP_RPM;
+            if (gamepad1.dpad_up) manualRpm = Math.min(MAX_SHOOTER_RPM, manualRpm + MANUAL_STEP_RPM);
             if (gamepad1.dpad_down) manualRpm = Math.max(0.0, manualRpm - MANUAL_STEP_RPM);
 
             AprilTagDetection target = findClosestTarget();
@@ -93,6 +95,7 @@ public class ShooterCalibration extends LinearOpMode {
             } else {
                 targetRpm = manualRpm;
             }
+            targetRpm = Math.min(MAX_SHOOTER_RPM, targetRpm);
 
             boolean running = gamepad1.right_bumper && !gamepad1.a;
             double targetTicksPerSec = rpmToTicksPerSec(running ? targetRpm : 0.0);
@@ -134,8 +137,8 @@ public class ShooterCalibration extends LinearOpMode {
         return false;
     }
 
-    // Promedio movil de las ultimas RANGE_SAMPLES lecturas, para suavizar el jitter del AprilTag.
-    // Si no hay deteccion en el frame actual, se limpia el historial (no interesa promediar con datos viejos).
+    // Moving average of the last RANGE_SAMPLES readings, to smooth out AprilTag jitter.
+    // If there's no detection in the current frame, clear the history (no point averaging with stale data).
     private Double updateRangeHistory(Double rawRange) {
         if (rawRange == null) {
             rangeHistory.clear();
@@ -149,7 +152,7 @@ public class ShooterCalibration extends LinearOpMode {
         return sum / rangeHistory.size();
     }
 
-    // Interpolacion lineal por tramos sobre la tabla CALIBRATION
+    // Piecewise linear interpolation over the CALIBRATION table
     private double shooterRpmForRange(double rangeCm) {
         if (rangeCm <= CALIBRATION[0][0]) return CALIBRATION[0][1];
         if (rangeCm >= CALIBRATION[CALIBRATION.length - 1][0]) return CALIBRATION[CALIBRATION.length - 1][1];

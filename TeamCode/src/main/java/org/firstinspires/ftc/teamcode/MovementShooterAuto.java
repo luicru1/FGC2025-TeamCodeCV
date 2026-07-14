@@ -76,52 +76,52 @@ public class MovementShooterAuto extends LinearOpMode {
 
     private static final int[] TARGET_TAG_IDS = {100, 101, 102, 103, 104};
 
-    // Puntos de calibracion (range en cm -> RPM objetivo del motor). Llena con
-    // los pares reales medidos en Shooter Calibration, ordenados por range ascendente.
+    // Calibration points (range in cm -> target motor RPM). Fill in with the
+    // real pairs measured in Shooter Calibration, sorted by ascending range.
     private static final double[][] SHOOTER_CALIBRATION = {
             {100.0, 2200.0},
             {300.0, 3400.0},
     };
 
     private static final double MANUAL_STEP_RPM = 25.0;
-    // REV-41-1291 gira libre a 6000 RPM sin carga; se limita bien abajo de eso
-    // para dejarle margen al control de velocidad y no forzar el motor al tope.
+    // REV-41-1291 spins freely at 6000 RPM unloaded; kept well below that
+    // to leave headroom for the velocity controller and avoid maxing out the motor.
     private static final double MAX_SHOOTER_RPM = 5000.0;
     private static final double VELOCITY_READY_TOLERANCE = 0.05; // 5%
-    private static final int RANGE_SAMPLES = 5; // frames a promediar para suavizar el range
+    private static final int RANGE_SAMPLES = 5; // frames averaged to smooth out the range reading
 
-    private static final double DECLOG_POWER = -0.3; // potencia fija para destrabar el shooter
+    private static final double DECLOG_POWER = -0.3; // fixed power used to clear a shooter jam
 
-    // Auto-centrado del chasis con DPAD derecha (gamepad1)
-    private static final double AUTO_CENTER_KP = 0.02;       // ganancia proporcional (grados de error -> potencia de giro)
-    private static final double AUTO_CENTER_MIN_POWER = 0.13; // piso de potencia para vencer friccion de cerca (error chico)
-    private static final double AUTO_CENTER_MAX_POWER = 0.4; // limite de potencia de giro, evita giros violentos
-    private static final double AUTO_CENTER_DEADBAND_DEG = 2.5; // margen para considerar "ya centrado"
-    private static final double AUTO_CENTER_MAX_ACCEL = 0.05; // cambio maximo de potencia por ciclo, para que sea suave
+    // Chassis auto-center, triggered by DPAD right (gamepad1)
+    private static final double AUTO_CENTER_KP = 0.02;       // proportional gain (degrees of error -> turn power)
+    private static final double AUTO_CENTER_MIN_POWER = 0.13; // power floor to overcome friction at close range (small error)
+    private static final double AUTO_CENTER_MAX_POWER = 0.4; // turn power cap, avoids violent spins
+    private static final double AUTO_CENTER_DEADBAND_DEG = 2.5; // tolerance to consider "already centered"
+    private static final double AUTO_CENTER_MAX_ACCEL = 0.05; // max power change per cycle, keeps it smooth
 
-    // Auto-avance del chasis con DPAD izquierda (gamepad1): mantiene el robot
-    // a TARGET_RANGE_CM del AprilTag.
+    // Chassis auto-approach, triggered by "triangle" (gamepad1): holds the
+    // robot at TARGET_RANGE_CM from the AprilTag.
     private static final double TARGET_RANGE_CM = 80.0;
-    private static final double RANGE_KP = 0.035;         // ganancia proporcional (cm de error -> potencia de avance)
-    private static final double MIN_RANGE_POWER = 0.18;   // piso de potencia para vencer friccion/peso del chasis
-    private static final double MAX_RANGE_POWER = 0.65;   // limite de potencia de avance, evita choques bruscos
-    private static final double RANGE_DEADBAND_CM = 3.0;  // margen para considerar "ya a distancia"
-    private static final double RANGE_MAX_ACCEL = 0.05;   // cambio maximo de potencia por ciclo, para que sea suave
+    private static final double RANGE_KP = 0.035;         // proportional gain (cm of error -> drive power)
+    private static final double MIN_RANGE_POWER = 0.18;   // power floor to overcome chassis friction/weight
+    private static final double MAX_RANGE_POWER = 0.65;   // drive power cap, avoids hard bumps
+    private static final double RANGE_DEADBAND_CM = 3.0;  // tolerance to consider "already at distance"
+    private static final double RANGE_MAX_ACCEL = 0.05;   // max power change per cycle, keeps it smooth
 
-    // Auto-lateral del chasis con "square" (gamepad1): strafea hasta quedar
-    // lateralmente alineado con el AprilTag (ftcPose.x = 0).
+    // Chassis auto-lateral, triggered by "square" (gamepad1): strafes until
+    // laterally aligned with the AprilTag (ftcPose.x = 0).
     private static final double LATERAL_KP = 0.025;
-    private static final double MIN_LATERAL_POWER = 0.3;  // piso de potencia: strafear cuesta mas que avanzar/girar (friccion de rodillos)
+    private static final double MIN_LATERAL_POWER = 0.3;  // power floor: strafing costs more than driving/turning (roller friction)
     private static final double MAX_LATERAL_POWER = 0.7;
-    private static final double LATERAL_DEADBAND_CM = 5.0; // mas ancha que range/bearing: el piso alto sobrepasa una banda chica
-    private static final double LATERAL_MAX_ACCEL = 0.05; // cambio maximo de potencia por ciclo, para que sea suave
+    private static final double LATERAL_DEADBAND_CM = 5.0; // wider than range/bearing: the high floor overshoots a tight band
+    private static final double LATERAL_MAX_ACCEL = 0.05; // max power change per cycle, keeps it smooth
 
     private final Deque<Double> rangeHistory = new ArrayDeque<>();
     private boolean shooterAutoMode = true;
     private double shooterManualRpm = 2500.0;
-    private double rangePowerSmoothed = 0.0;  // ultima potencia aplicada de auto-avance, para suavizar cambios
-    private double centerPowerSmoothed = 0.0; // ultima potencia aplicada de auto-centrado, para suavizar cambios
-    private double lateralPowerSmoothed = 0.0; // ultima potencia aplicada de auto-lateral, para suavizar cambios
+    private double rangePowerSmoothed = 0.0;  // last applied auto-approach power, for smoothing
+    private double centerPowerSmoothed = 0.0; // last applied auto-center power, for smoothing
+    private double lateralPowerSmoothed = 0.0; // last applied auto-lateral power, for smoothing
 
 
     // Main Method
@@ -138,7 +138,7 @@ public class MovementShooterAuto extends LinearOpMode {
 
         motorHex = hardwareMap.get(DcMotorEx.class, "motorHex");
         motorHex2 = hardwareMap.get(DcMotorEx.class, "motorHex2");
-        motorUltra = hardwareMap.get(DcMotorEx.class, "motorUltra"); // debe estar en el puerto 3 del Expansion Hub
+        motorUltra = hardwareMap.get(DcMotorEx.class, "motorUltra"); // must be in Expansion Hub port 3
 
         servomotor2 = hardwareMap.get(Servo.class, "servomotor2");
         servomotor3 = hardwareMap.get(Servo.class, "servomotor3");
@@ -187,27 +187,27 @@ public class MovementShooterAuto extends LinearOpMode {
             float powerX = gamepad1.left_stick_x; // Lateral movement
             float rot = gamepad1.right_stick_x;  // Rotation
 
-            // Deteccion de AprilTag (se usa para auto-centrar el chasis y para el shooter)
+            // AprilTag detection (used for chassis auto-centering and for the shooter)
             AprilTagDetection target = findClosestTarget();
             Double rawRange = (target != null && target.ftcPose != null) ? target.ftcPose.range : null;
             Double smoothedRange = updateRangeHistory(rawRange);
 
-            // Auto-centrado: DPAD derecha (gamepad1) gira el chasis solo, hasta
-            // alinear el bearing del AprilTag a 0, sin tocar el avance/lateral
-            // que sigue manejando el driver con el stick izquierdo.
+            // Auto-center: DPAD right (gamepad1) rotates the chassis only, until
+            // the AprilTag bearing is aligned to 0, without touching forward/lateral
+            // movement, which the driver still controls with the left stick.
             boolean autoCenterActive = gamepad1.dpad_right;
             double centerTargetPower;
             if (autoCenterActive) {
                 if (target != null && target.ftcPose != null) {
-                    double bearingError = target.ftcPose.bearing; // grados, + = tag a la derecha
+                    double bearingError = target.ftcPose.bearing; // degrees, + = tag to the right
                     if (Math.abs(bearingError) > AUTO_CENTER_DEADBAND_DEG) {
                         double magnitude = Range.clip(Math.abs(bearingError) * AUTO_CENTER_KP, AUTO_CENTER_MIN_POWER, AUTO_CENTER_MAX_POWER);
                         centerTargetPower = -Math.copySign(magnitude, bearingError);
                     } else {
-                        centerTargetPower = 0; // ya esta centrado, dejar de girar
+                        centerTargetPower = 0; // already centered, stop turning
                     }
                 } else {
-                    centerTargetPower = 0; // sin tag visible, no gires a ciegas
+                    centerTargetPower = 0; // no tag visible, don't turn blindly
                 }
             } else {
                 centerTargetPower = 0;
@@ -215,51 +215,51 @@ public class MovementShooterAuto extends LinearOpMode {
             centerPowerSmoothed = rampTowards(centerPowerSmoothed, centerTargetPower, AUTO_CENTER_MAX_ACCEL);
             if (autoCenterActive) rot = (float) centerPowerSmoothed;
 
-            // Auto-avance: "triangle" (gamepad1) mueve el chasis en Y solo,
-            // hasta quedar a TARGET_RANGE_CM del AprilTag. Lateral y rotacion
-            // (o el auto-centrado de arriba) siguen disponibles al mismo tiempo.
-            // Va en un boton aparte del DPAD (no en dpad_left) porque un D-pad
-            // fisico no puede registrar izquierda y derecha presionados a la vez.
-            // Camara/shooter montados en la parte de ATRAS del robot: acercarse
-            // al tag significa mover el chasis en reversa, por eso el signo va invertido.
+            // Auto-approach: "triangle" (gamepad1) moves the chassis in Y only,
+            // until it's at TARGET_RANGE_CM from the AprilTag. Lateral and rotation
+            // (or the auto-center above) remain available at the same time.
+            // Bound to a face button instead of dpad_left because a physical
+            // D-pad can't register left and right pressed at the same time.
+            // Camera/shooter are mounted on the BACK of the robot: getting closer
+            // to the tag means driving the chassis in reverse, hence the inverted sign.
             boolean autoRangeActive = gamepad1.triangle;
             double rangeTargetPower;
             if (autoRangeActive) {
                 if (target != null && target.ftcPose != null && smoothedRange != null) {
-                    double rangeError = smoothedRange - TARGET_RANGE_CM; // + = muy lejos, - = muy cerca
+                    double rangeError = smoothedRange - TARGET_RANGE_CM; // + = too far, - = too close
                     if (Math.abs(rangeError) > RANGE_DEADBAND_CM) {
                         double magnitude = Range.clip(Math.abs(rangeError) * RANGE_KP, MIN_RANGE_POWER, MAX_RANGE_POWER);
                         rangeTargetPower = -Math.copySign(magnitude, rangeError);
                     } else {
-                        rangeTargetPower = 0; // ya esta a la distancia objetivo
+                        rangeTargetPower = 0; // already at the target distance
                     }
                 } else {
-                    rangeTargetPower = 0; // sin tag visible, no avances a ciegas
+                    rangeTargetPower = 0; // no tag visible, don't drive blindly
                 }
             } else {
                 rangeTargetPower = 0;
             }
-            // Suaviza el cambio de potencia (rampa) en vez de saltar de golpe al valor objetivo
+            // Smooth the power change (ramp) instead of jumping straight to the target value
             rangePowerSmoothed = rampTowards(rangePowerSmoothed, rangeTargetPower, RANGE_MAX_ACCEL);
             if (autoRangeActive) powerY = (float) rangePowerSmoothed;
 
-            // Auto-lateral: "square" (gamepad1) strafea el chasis hasta quedar
-            // alineado lateralmente con el AprilTag (x = 0). Igual que en el
-            // auto-avance, el signo esta invertido por la camara montada atras
-            // (izquierda/derecha se ven al reves desde la camara).
+            // Auto-lateral: "square" (gamepad1) strafes the chassis until it's
+            // laterally aligned with the AprilTag (x = 0). Just like auto-approach,
+            // the sign is inverted because the camera is mounted on the back
+            // (left/right appear mirrored from the camera's point of view).
             boolean autoLateralActive = gamepad1.square;
             double lateralTargetPower;
             if (autoLateralActive) {
                 if (target != null && target.ftcPose != null) {
-                    double lateralError = target.ftcPose.x; // cm, + = tag a la derecha de la camara
+                    double lateralError = target.ftcPose.x; // cm, + = tag to the camera's right
                     if (Math.abs(lateralError) > LATERAL_DEADBAND_CM) {
                         double magnitude = Range.clip(Math.abs(lateralError) * LATERAL_KP, MIN_LATERAL_POWER, MAX_LATERAL_POWER);
                         lateralTargetPower = -Math.copySign(magnitude, lateralError);
                     } else {
-                        lateralTargetPower = 0; // ya esta alineado lateralmente
+                        lateralTargetPower = 0; // already laterally aligned
                     }
                 } else {
-                    lateralTargetPower = 0; // sin tag visible, no strafees a ciegas
+                    lateralTargetPower = 0; // no tag visible, don't strafe blindly
                 }
             } else {
                 lateralTargetPower = 0;
@@ -472,7 +472,7 @@ public class MovementShooterAuto extends LinearOpMode {
         return false;
     }
 
-    // Promedio movil de las ultimas RANGE_SAMPLES lecturas, para suavizar el jitter del AprilTag.
+    // Moving average of the last RANGE_SAMPLES readings, to smooth out AprilTag jitter.
     private Double updateRangeHistory(Double rawRange) {
         if (rawRange == null) {
             rangeHistory.clear();
@@ -486,14 +486,14 @@ public class MovementShooterAuto extends LinearOpMode {
         return sum / rangeHistory.size();
     }
 
-    // Acerca "current" a "target" sin pasarse de maxDelta por llamada, para suavizar rampas de potencia
+    // Moves "current" toward "target" without exceeding maxDelta per call, to smooth power ramps
     private double rampTowards(double current, double target, double maxDelta) {
         double delta = target - current;
         if (Math.abs(delta) > maxDelta) delta = Math.copySign(maxDelta, delta);
         return current + delta;
     }
 
-    // Interpolacion lineal por tramos sobre la tabla SHOOTER_CALIBRATION
+    // Piecewise linear interpolation over the SHOOTER_CALIBRATION table
     private double shooterRpmForRange(double rangeCm) {
         if (rangeCm <= SHOOTER_CALIBRATION[0][0]) return SHOOTER_CALIBRATION[0][1];
         if (rangeCm >= SHOOTER_CALIBRATION[SHOOTER_CALIBRATION.length - 1][0])
